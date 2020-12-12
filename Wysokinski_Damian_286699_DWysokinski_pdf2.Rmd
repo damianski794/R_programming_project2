@@ -1,0 +1,265 @@
+---
+title: "projekt 2"
+author: "Damian Wysokiński"
+date: "12 12 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+options(stringsAsFactors=FALSE)
+
+library(sqldf)
+library(dplyr)
+
+```
+
+Wczytanie danych
+```{r}
+Badges <- read.csv("travel_stackexchange_com/Badges.csv.gz")
+Comments <- read.csv("travel_stackexchange_com/Comments.csv.gz")
+PostLinks <- read.csv("travel_stackexchange_com/PostLinks.csv.gz")
+Posts <- read.csv("travel_stackexchange_com/Posts.csv.gz")
+Tags <- read.csv("travel_stackexchange_com/Tags.csv.gz")
+Users <- read.csv("travel_stackexchange_com/Users.csv.gz")
+Votes <- read.csv("travel_stackexchange_com/Votes.csv.gz")
+```
+Zad1
+```{r}
+# SQL
+zad1_sql <- sqldf('SELECT Posts.Title, RelatedTab.NumLinks
+FROM
+  (SELECT RelatedPostId AS PostId, COUNT(*) AS NumLinks
+  FROM PostLinks
+  GROUP BY RelatedPostId) AS RelatedTab
+JOIN Posts ON RelatedTab.PostId=Posts.Id
+WHERE Posts.PostTypeId=1
+ORDER BY NumLinks DESC
+')
+
+zad1_sql
+```
+
+```{r}
+#zad 1 wewnetrzna wartosc
+
+RelatedTab_zad_1_sql <- sqldf('SELECT RelatedPostId AS PostId, COUNT(*) AS NumLinks
+  FROM PostLinks
+  GROUP BY RelatedPostId 
+')
+ 
+RelatedTab_zad_1_sql
+```
+zad 1 dplyr
+```{r}
+# RelatedTab_zad_1_sql 
+PostLinks 
+
+RelatedTab <- PostLinks %>%
+  group_by(RelatedPostId) %>%
+  summarise(NumLinks = n()) %>% 
+  rename(PostId = RelatedPostId)
+
+all_equal(RelatedTab, RelatedTab_zad_1_sql)
+
+zad1_dplyr <- inner_join(RelatedTab,Posts, by = c("PostId" = "Id")) %>% 
+  filter(PostTypeId == 1) %>% 
+  select(Title, NumLinks) %>% 
+  arrange(desc(NumLinks))
+
+all_equal(zad1_dplyr, zad1_sql)
+```
+
+Zad 2 sql
+```{r}
+zad2_sql <- sqldf(
+'SELECT
+  Users.DisplayName,
+  Users.Age,
+  Users.Location,
+  SUM(Posts.FavoriteCount) AS FavoriteTotal,
+  Posts.Title AS MostFavoriteQuestion,
+  MAX(Posts.FavoriteCount) AS MostFavoriteQuestionLikes
+FROM Posts
+JOIN Users ON Users.Id=Posts.OwnerUserId
+WHERE Posts.PostTypeId=1
+GROUP BY OwnerUserId
+ORDER BY FavoriteTotal DESC
+LIMIT 10
+')
+head(zad2_sql)
+```
+Zad 2 dplyr
+```{r}
+
+# bledne rozwiazanie - wielokrotnie pojawia sie MostFaviouteQuestion dla nawego Favourite Count
+users_inner <- Users %>% select(DisplayName, Age, Location, Id)
+
+inner_join(Posts, Users, by = c("OwnerUserId" = "Id")) %>% 
+  filter(PostTypeId == 1, !is.na(FavoriteCount)) %>% 
+  group_by(OwnerUserId) %>%
+  #summarise(FavoriteTotal = sum(FavoriteCount), MostFavoriteQuestionLikes = max(FavoriteCount)) %>% 
+  summarise(DisplayName, Age, Location, FavoriteTotal = sum(FavoriteCount), MostFavoriteQuestion = Title, MostFavoriteQuestionLikes = max(FavoriteCount)) %>%
+  #inner_join(users_inner, by = c("OwnerUserId" = "Id")) %>%
+  ungroup() %>%
+  select(DisplayName, Age, Location, FavoriteTotal, MostFavoriteQuestion, MostFavoriteQuestionLikes) %>% 
+  arrange(desc(FavoriteTotal)) %>% 
+  top_n(10)
+  
+  #rename(MostFavoriteQuestion = Title)
+
+```
+Zad 3
+
+Zad3 SQL
+```{r}
+zad3_sql <- sqldf("
+SELECT
+  Posts.Title,
+  CmtTotScr.CommentsTotalScore
+FROM (
+    SELECT
+      PostID,
+      UserID,
+      SUM(Score) AS CommentsTotalScore
+    FROM Comments
+    GROUP BY PostID, UserID
+) AS CmtTotScr
+JOIN Posts ON Posts.ID=CmtTotScr.PostID AND Posts.OwnerUserId=CmtTotScr.UserID
+WHERE Posts.PostTypeId=1
+ORDER BY CmtTotScr.CommentsTotalScore DESC
+LIMIT 10")
+zad3_sql
+```
+zad3 dyplyr
+```{r}
+CmtTotScr_sql <- sqldf('SELECT
+PostID,
+UserID,
+SUM(Score) AS CommentsTotalScore
+FROM Comments
+GROUP BY PostID, UserID')
+
+(CmtTotScr <- Comments %>% 
+  group_by(PostId, UserId) %>% 
+  summarise(CommentsTotalScore = sum(Score)))
+
+all_equal(CmtTotScr, CmtTotScr_sql)
+
+zad3_dyplr <- inner_join(CmtTotScr, Posts, by = c("PostId"="Id", "UserId"="OwnerUserId")) %>% 
+  filter(PostTypeId == 1) %>% 
+  arrange(desc(CommentsTotalScore)) %>%
+  ungroup() %>% 
+  select(Title, CommentsTotalScore) %>% 
+  top_n(10)
+
+all_equal(zad3_dyplr, zad3_sql)
+```
+
+Zad4
+
+zad4 sql
+```{r}
+zad4_sql <- sqldf('
+SELECT DISTINCT
+  Users.Id,
+  Users.DisplayName,
+  Users.Reputation,
+  Users.Age,
+  Users.Location
+FROM (
+      SELECT
+        Name, UserID
+      FROM Badges
+      WHERE Name IN (
+        SELECT
+          Name
+        FROM Badges
+        WHERE Class=1
+        GROUP BY Name
+        HAVING COUNT(*) BETWEEN 2 AND 10
+      )
+    AND Class=1
+  ) AS ValuableBadges
+JOIN Users ON ValuableBadges.UserId=Users.Id
+')
+zad4_sql
+```
+zad4_dyplr
+```{r}
+(inner_names_sql <- sqldf('
+SELECT
+Name
+FROM Badges
+WHERE Class=1
+GROUP BY Name
+HAVING COUNT(*) BETWEEN 2 AND 10'))
+
+(inner_names <- Badges %>% 
+  filter(Class == 1) %>% 
+  group_by(Name) %>% 
+  summarise(cnt = n()) %>% 
+  ungroup() %>% 
+  filter(cnt >= 2, cnt <= 10) %>% 
+  select(Name))
+all_equal(inner_names_sql, inner_names)
+
+
+(ValuableBadges_sql <- sqldf('
+SELECT
+Name, UserID
+FROM Badges
+WHERE Name IN (
+    SELECT
+      Name
+    FROM Badges
+    WHERE Class=1
+    GROUP BY Name
+    HAVING COUNT(*) BETWEEN 2 AND 10
+)
+AND Class=1
+'))
+
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
+
+```{r}
+
+```
