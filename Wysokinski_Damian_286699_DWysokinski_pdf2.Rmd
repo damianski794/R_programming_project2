@@ -202,8 +202,9 @@ HAVING COUNT(*) BETWEEN 2 AND 10'))
   summarise(cnt = n()) %>% 
   ungroup() %>% 
   filter(cnt >= 2, cnt <= 10) %>% 
-  select(Name))
-all_equal(inner_names_sql, inner_names)
+  select(Name) %>%
+    pull()) #pull potrzebny do kolejnego zapytania (gdzie uzywa sie %in%s)
+#all_equal(inner_names_sql, inner_names)
 
 
 (ValuableBadges_sql <- sqldf('
@@ -221,11 +222,23 @@ WHERE Name IN (
 AND Class=1
 '))
 
+(ValuableBadges <- Badges %>% 
+  filter(Name %in% inner_names, Class == 1) %>% 
+  select(Name, UserId))
 
+all_equal(ValuableBadges, ValuableBadges_sql)
+
+zad4_dyplr <- inner_join(ValuableBadges, Users, by = c("UserId" = "Id")) %>% 
+    rename(Id = UserId) %>% 
+    select(Id, DisplayName, Reputation, Age, Location) %>% 
+  distinct
+
+all_equal(zad4_dyplr, zad4_sql)
+  
 ```
 
 ```{r}
-
+print('xd')
 ```
 
 ```{r}
