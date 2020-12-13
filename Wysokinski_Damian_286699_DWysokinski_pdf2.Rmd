@@ -12,11 +12,15 @@ options(stringsAsFactors=FALSE)
 
 library(sqldf)
 library(dplyr)
+library(data.table)
+#install.packages('R.utils')
 
 ```
 
 Wczytanie danych
 ```{r}
+
+# to data.frames
 Badges <- read.csv("travel_stackexchange_com/Badges.csv.gz")
 Comments <- read.csv("travel_stackexchange_com/Comments.csv.gz")
 PostLinks <- read.csv("travel_stackexchange_com/PostLinks.csv.gz")
@@ -24,7 +28,26 @@ Posts <- read.csv("travel_stackexchange_com/Posts.csv.gz")
 Tags <- read.csv("travel_stackexchange_com/Tags.csv.gz")
 Users <- read.csv("travel_stackexchange_com/Users.csv.gz")
 Votes <- read.csv("travel_stackexchange_com/Votes.csv.gz")
+
+# to data.tables
+Badges_dt <- fread("travel_stackexchange_com/Badges.csv.gz")
+Comments_dt <- fread("travel_stackexchange_com/Comments.csv.gz")
+PostLinks_dt <- fread("travel_stackexchange_com/PostLinks.csv.gz")
+Posts_dt <- fread("travel_stackexchange_com/Posts.csv.gz")
+Tags_dt <- fread("travel_stackexchange_com/Tags.csv.gz")
+Users_dt <- fread("travel_stackexchange_com/Users.csv.gz")
+Votes_dt <- fread("travel_stackexchange_com/Votes.csv.gz")
 ```
+
+Wykonane zadania
+```{r}
+wersja_dyplr <- c('T','N','T','T','N')
+wersja_f_bazowe <- c('N','N','N','N','N')
+wersja_data_table <- c('T','N','N','N','N')
+row_nr <- 1:5
+data.frame(row_nr, wersja_dyplr, wersja_f_bazowe, wersja_data_table)
+```
+
 Zad1
 ```{r}
 # SQL
@@ -70,6 +93,34 @@ zad1_dplyr <- inner_join(RelatedTab,Posts, by = c("PostId" = "Id")) %>%
 
 all_equal(zad1_dplyr, zad1_sql)
 ```
+Zad 1 data.table
+```{r}
+related_table_dt <- PostLinks_dt[, .(NumLinks = .N), by = RelatedPostId] %>% setnames(old = "RelatedPostId", new = "PostId")
+related_table_dt
+
+all_equal(RelatedTab_zad_1_sql, related_table_dt) # do tego miejsca jest tak samo
+#################################
+zad1_sql_bez_where <- sqldf('SELECT Posts.Title, RelatedTab.NumLinks
+FROM
+  (SELECT RelatedPostId AS PostId, COUNT(*) AS NumLinks
+  FROM PostLinks
+  GROUP BY RelatedPostId) AS RelatedTab
+JOIN Posts ON RelatedTab.PostId=Posts.Id
+ORDER BY NumLinks, Title')
+
+
+merged <- merge(related_table_dt, Posts_dt, by.x = "PostId", by.y = "Id")
+keycol <- c("NumLinks")
+merged <- setorderv(merged, keycol, c(-1))
+merged <- merged[PostTypeId == 1, c("Title", "NumLinks")]
+merged$Title <- gsub('""','"',merged$Title) # data.table zamiast "..." tworzy ""..."" wiec trzeba zamienic podwojne "" na pojedyncze "
+
+all_equal(merged, zad1_sql)               
+```
+
+
+
+
 
 Zad 2 sql
 ```{r}
@@ -236,13 +287,50 @@ zad4_dyplr <- inner_join(ValuableBadges, Users, by = c("UserId" = "Id")) %>%
 all_equal(zad4_dyplr, zad4_sql)
   
 ```
+Zad 5
 
+zad5_sql
 ```{r}
-print('xd')
+(zad_sql <- sqldf('
+SELECT
+    Questions.Id,
+    Questions.Title,
+    BestAnswers.MaxScore,
+    Posts.Score AS AcceptedScore,
+    BestAnswers.MaxScore-Posts.Score AS Difference
+FROM (
+        SELECT Id, ParentId, MAX(Score) AS MaxScore
+        FROM Posts
+        WHERE PostTypeId==2
+        GROUP BY ParentId
+) AS BestAnswers
+JOIN (
+      SELECT * FROM Posts
+      WHERE PostTypeId==1
+    ) AS Questions
+  ON Questions.Id=BestAnswers.ParentId
+JOIN Posts ON Questions.AcceptedAnswerId=Posts.Id
+WHERE Difference>50
+ORDER BY Difference DESC
+'))
+
+best_answers_sql <- sqldf(
+'SELECT Id, ParentId, MAX(Score) AS MaxScore
+FROM Posts
+WHERE PostTypeId==2
+GROUP BY ParentId')
+
+best_answers <- Posts %>% 
+  filter(PostTypeId == 2) %>% 
+  group_by(ParentId) %>% 
+  summarise(MaxScore = max(Score))
+
+
+
 ```
 
 ```{r}
-
+Posts %>% filter(ParentId <=3) %>% select(Id, ParentId) %>% arrange(ParentId)
 ```
 
 ```{r}
