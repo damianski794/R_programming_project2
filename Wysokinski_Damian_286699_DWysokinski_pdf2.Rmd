@@ -43,9 +43,10 @@ Wykonane zadania
 ```{r}
 wersja_dyplr <- c('T','N','T','T','N')
 wersja_f_bazowe <- c('N','N','N','N','N')
-wersja_data_table <- c('T','N','N','N','N')
-row_nr <- 1:5
-data.frame(row_nr, wersja_dyplr, wersja_f_bazowe, wersja_data_table)
+wersja_data_table <- c('T','N','T','N','T')
+testy_szybkosci <- c('N', 'N', 'N', 'N', 'N')
+intepretacje_zapytan <- c('T', 'T', 'T', 'T', 'T')
+head(data.frame(wersja_dyplr, wersja_f_bazowe, wersja_data_table, testy_szybkosci, intepretacje_zapytan))
 ```
 
 Zad1
@@ -61,8 +62,17 @@ WHERE Posts.PostTypeId=1
 ORDER BY NumLinks DESC
 ')
 
-zad1_sql
+#zad1_sql
 ```
+Interpretacja zapytania:
+
+1. Stwórz tabele RelatedTab jako zapytanie:
+    1. Wybierz RelatedPostId z aliasem PostId, liczbe kazdej z grup RelatedPostId z aliasem NumLinks z tabeli PostLinks
+2. Polacz tabele (inner joinem) z Posts
+3. Przefiltruj po PostTypeId = 1
+4. Wybierz Title, NumLinks
+5. Uszereguj wzgledem NumLinks malejaco
+  
 
 ```{r}
 #zad 1 wewnetrzna wartosc
@@ -72,12 +82,12 @@ RelatedTab_zad_1_sql <- sqldf('SELECT RelatedPostId AS PostId, COUNT(*) AS NumLi
   GROUP BY RelatedPostId 
 ')
  
-RelatedTab_zad_1_sql
+head(RelatedTab_zad_1_sql)
 ```
 zad 1 dplyr
 ```{r}
 # RelatedTab_zad_1_sql 
-PostLinks 
+# PostLinks 
 
 RelatedTab <- PostLinks %>%
   group_by(RelatedPostId) %>%
@@ -96,7 +106,7 @@ all_equal(zad1_dplyr, zad1_sql)
 Zad 1 data.table
 ```{r}
 related_table_dt <- PostLinks_dt[, .(NumLinks = .N), by = RelatedPostId] %>% setnames(old = "RelatedPostId", new = "PostId")
-related_table_dt
+# related_table_dt
 
 all_equal(RelatedTab_zad_1_sql, related_table_dt) # do tego miejsca jest tak samo
 #################################
@@ -114,7 +124,7 @@ keycol <- c("NumLinks")
 merged <- setorderv(merged, keycol, c(-1))
 merged <- merged[PostTypeId == 1, c("Title", "NumLinks")]
 merged$Title <- gsub('""','"',merged$Title) # data.table zamiast "..." tworzy ""..."" wiec trzeba zamienic podwojne "" na pojedyncze "
-
+                                            # jest to absurdalne zachowanie data.table
 all_equal(merged, zad1_sql)               
 ```
 
@@ -141,6 +151,17 @@ LIMIT 10
 ')
 head(zad2_sql)
 ```
+Interpretacja zapytania:
+
+(To zapytanie jest w jakims dziwnym standardzie bo selectowane sa dane niewchodzace w sklad grupowania - imo blednym)
+
+1. Polacz tabele Posts z Users
+2. Przefiltruj po PostTypeId = 1
+3. Pogrupuj po OwnerUserId
+4. Wybierz DisplayName, Age, Location, sume FavouriteCount z aliasem FavoriteTotal, Title z aliasem MostFavoriteQuestion, max FavoriteCount z aliasem MostFavoriteQuestionLikes
+5. Uszereguj po FavoriteTotal malejaco
+6. Wybierz 10 pierwszych wierszy tabeli
+
 Zad 2 dplyr
 ```{r}
 
@@ -181,8 +202,20 @@ JOIN Posts ON Posts.ID=CmtTotScr.PostID AND Posts.OwnerUserId=CmtTotScr.UserID
 WHERE Posts.PostTypeId=1
 ORDER BY CmtTotScr.CommentsTotalScore DESC
 LIMIT 10")
-zad3_sql
+head(zad3_sql)
 ```
+Interpretacja zapytania:
+
+1. Stworz tabele CmtTotScr jako:
+    1. Wybierz tabele Comments
+    2. Pogrupuj po PostId, UserId
+    3. Wyznacz PostId, UserId, sum Score z aliasem CommentsTotalScore
+2. Polacz CmtTotScr z Post
+3. Przefiltruj po PostTypeId=1
+4. Uszereguj po CommentsTotalScore
+5. Wyznacz Title, CommentsTotalScore
+6. Wybierz 10 pierwszych wierszy
+
 zad3 dyplyr
 ```{r}
 CmtTotScr_sql <- sqldf('SELECT
@@ -192,9 +225,9 @@ SUM(Score) AS CommentsTotalScore
 FROM Comments
 GROUP BY PostID, UserID')
 
-(CmtTotScr <- Comments %>% 
+CmtTotScr <- Comments %>% 
   group_by(PostId, UserId) %>% 
-  summarise(CommentsTotalScore = sum(Score)))
+  summarise(CommentsTotalScore = sum(Score))
 
 all_equal(CmtTotScr, CmtTotScr_sql)
 
@@ -206,6 +239,22 @@ zad3_dyplr <- inner_join(CmtTotScr, Posts, by = c("PostId"="Id", "UserId"="Owner
   top_n(10)
 
 all_equal(zad3_dyplr, zad3_sql)
+```
+
+Zad3 data.table
+```{r}
+CmtTotScr_dt <- Comments_dt[, .(CommentsTotalScore = sum(Score)),.(PostId,UserId)]
+all_equal(CmtTotScr_dt, CmtTotScr_sql)
+
+merged <- merge(CmtTotScr_dt, Posts_dt, by.x = c("PostId", "UserId"), by.y = c("Id","OwnerUserId"))
+merged <- merged[PostTypeId==1,]
+# colnames(merged)
+
+keycol <- c("CommentsTotalScore")
+merged <- setorderv(merged, keycol, c(-1))
+merged <- merged[1:10,.(Title, CommentsTotalScore)]
+
+all_equal(zad3_sql, merged)
 ```
 
 Zad4
@@ -235,30 +284,43 @@ FROM (
   ) AS ValuableBadges
 JOIN Users ON ValuableBadges.UserId=Users.Id
 ')
-zad4_sql
+head(zad4_sql)
 ```
+Interpretacja zapytania
+
+1. Wybierz Nazwy jako:
+    1. Przefiltruj tabele Badges po Class = 1
+    2. Pogrupuj po Name
+    3. Wybierz grupy o licznosci od -2 do 10
+    4. Zwroc Name
+2. Stworz tabele ValuableBadges jako:
+    1. Przefiltuj tabele Badges dla Name wchodzacych w sklad Nazw z punktu 1 oraz dla Class = 1
+    2. Wybierz Name, UserId
+3. Polacz ValuableBadges z Users
+4. Wybierz Id, DisplayName, Reputation, Age, Location (wiersze nie moga sie powtarzac)
+
 zad4_dyplr
 ```{r}
-(inner_names_sql <- sqldf('
+inner_names_sql <- sqldf('
 SELECT
 Name
 FROM Badges
 WHERE Class=1
 GROUP BY Name
-HAVING COUNT(*) BETWEEN 2 AND 10'))
+HAVING COUNT(*) BETWEEN 2 AND 10')
 
-(inner_names <- Badges %>% 
+inner_names <- Badges %>% 
   filter(Class == 1) %>% 
   group_by(Name) %>% 
   summarise(cnt = n()) %>% 
   ungroup() %>% 
   filter(cnt >= 2, cnt <= 10) %>% 
   select(Name) %>%
-    pull()) #pull potrzebny do kolejnego zapytania (gdzie uzywa sie %in%s)
+    pull() #pull potrzebny do kolejnego zapytania (gdzie uzywa sie %in%s)
 #all_equal(inner_names_sql, inner_names)
 
 
-(ValuableBadges_sql <- sqldf('
+ValuableBadges_sql <- sqldf('
 SELECT
 Name, UserID
 FROM Badges
@@ -269,15 +331,14 @@ WHERE Name IN (
     WHERE Class=1
     GROUP BY Name
     HAVING COUNT(*) BETWEEN 2 AND 10
-)
-AND Class=1
-'))
+    )
+AND Class=1')
 
-(ValuableBadges <- Badges %>% 
+ValuableBadges <- Badges %>% 
   filter(Name %in% inner_names, Class == 1) %>% 
-  select(Name, UserId))
+  select(Name, UserId)
 
-all_equal(ValuableBadges, ValuableBadges_sql)
+# all_equal(ValuableBadges, ValuableBadges_sql)
 
 zad4_dyplr <- inner_join(ValuableBadges, Users, by = c("UserId" = "Id")) %>% 
     rename(Id = UserId) %>% 
@@ -285,7 +346,23 @@ zad4_dyplr <- inner_join(ValuableBadges, Users, by = c("UserId" = "Id")) %>%
   distinct
 
 all_equal(zad4_dyplr, zad4_sql)
-  
+```
+
+Zad 4 data.table
+```{r}
+inner_names_dt <- Badges_dt[Class==1, .(count = .N), by = .(Name)]
+inner_names_dt <- inner_names_dt[count >=2 & count <= 10, .(Name)]
+
+all_equal(inner_names_sql, inner_names_dt)
+
+ValuableBadges_dt <- Badges_dt[Class == 1 & Name %in% pull(inner_names_dt), .(Name, UserId)]
+
+all_equal(ValuableBadges_dt, ValuableBadges_sql)
+
+merged <- merge(ValuableBadges_dt, Users_dt, by.x = "UserId", by.y = "Id") %>% setnames(old = 'UserId', new = 'Id')
+merged <- merged[, .(Id, DisplayName, Reputation, Age, Location)]
+merged  <- unique(merged)
+all_equal(zad4_sql, merged)
 ```
 Zad 5
 
@@ -328,6 +405,23 @@ best_answers <- Posts %>%
 
 
 ```
+Interpretacja zapytania:
+
+(To zapytanie jest w jakims dziwnym standardzie bo selectowane sa dane niewchodzace w sklad grupowania - imo blednym)
+
+1. Stworz tabele BestAnswers jako:
+    1. Przefiltruj Posts po PostTypeId=2
+    2. Pogrupuj po ParentId
+    3. Wybierz Id, ParentId, max Score z aliasem MaxScore
+2. Stworz tabele Questions jako:
+    1. Przefiltruj Posts po PostTypeId = 1
+    2. Wybierz wszystkie kolumny
+3. Polacz BestAnswers z Questions
+4. Polacz z Posts
+5. Przefiltruj po Difference > 50
+6. Uszereguj po Difference
+7. Zwroc Id, Title, MaxScore, Score z aliasem AcceptedScore, MaxScore-Score z aliasem Difference
+
 
 ```{r}
 Posts %>% filter(ParentId <=3) %>% select(Id, ParentId) %>% arrange(ParentId)
