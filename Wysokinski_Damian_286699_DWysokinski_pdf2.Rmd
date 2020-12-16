@@ -13,7 +13,8 @@ options(stringsAsFactors=FALSE)
 library(sqldf)
 library(dplyr)
 library(data.table)
-#install.packages('R.utils')
+library(microbenchmark)
+#library(R.utils)
 
 ```
 
@@ -42,11 +43,11 @@ Votes_dt <- fread("travel_stackexchange_com/Votes.csv.gz")
 Wykonane zadania
 ```{r}
 wersja_dyplr <- c('T','N','T','T','N')
-wersja_f_bazowe <- c('N','N','N','N','N')
-wersja_data_table <- c('T','N','T','N','T')
+wersja_f_bazowe <- c('T','N','T','T','N')
+wersja_data_table <- c('T','N','T','T','N')
 testy_szybkosci <- c('N', 'N', 'N', 'N', 'N')
-intepretacje_zapytan <- c('T', 'T', 'T', 'T', 'T')
-head(data.frame(wersja_dyplr, wersja_f_bazowe, wersja_data_table, testy_szybkosci, intepretacje_zapytan))
+intepretacje <- c('T', 'T', 'T', 'T', 'T')
+head(data.frame(wersja_dyplr, wersja_f_bazowe, wersja_data_table, testy_szybkosci, intepretacje))
 ```
 
 Zad1
@@ -82,7 +83,7 @@ RelatedTab_zad_1_sql <- sqldf('SELECT RelatedPostId AS PostId, COUNT(*) AS NumLi
   GROUP BY RelatedPostId 
 ')
  
-head(RelatedTab_zad_1_sql)
+#head(RelatedTab_zad_1_sql)
 ```
 zad 1 dplyr
 ```{r}
@@ -128,9 +129,29 @@ merged$Title <- gsub('""','"',merged$Title) # data.table zamiast "..." tworzy ""
 all_equal(merged, zad1_sql)               
 ```
 
+zad 1 funkcje bazowe
+```{r}
+#  RelatedTab_zad_1_bf <- aggregate(. ~ RelatedPostId, PostLinks, length)
+RelatedTab_zad_1_bf <-  setNames(aggregate(PostLinks[, 'RelatedPostId'], by = list(PostId = PostLinks$RelatedPostId), length), c("PostId", "NumLinks"))
 
+all_equal(RelatedTab_zad_1_sql, RelatedTab_zad_1_bf)
 
+merged <- merge(RelatedTab_zad_1_bf, Posts, by.x = "PostId", by.y = "Id")
+keycol <- c("NumLinks")
+merged <- setorderv(merged, keycol, c(-1))
+merged <- merged[merged$PostTypeId == 1, c("Title", "NumLinks")]
+merged$Title <- gsub('""','"',merged$Title) # data.table zamiast "..." tworzy ""..."" wiec trzeba zamienic podwojne "" na pojedyncze "
+                                            # jest to absurdalne zachowanie data.table
+all_equal(merged, zad1_sql)
+```
 
+Porównanie czasowe
+
+```{r}
+x = 1:1000000
+microbenchmark(sqrt(x),
+               x^2)
+```
 
 Zad 2 sql
 ```{r}
@@ -149,7 +170,7 @@ GROUP BY OwnerUserId
 ORDER BY FavoriteTotal DESC
 LIMIT 10
 ')
-head(zad2_sql)
+#head(zad2_sql)
 ```
 Interpretacja zapytania:
 
@@ -202,7 +223,8 @@ JOIN Posts ON Posts.ID=CmtTotScr.PostID AND Posts.OwnerUserId=CmtTotScr.UserID
 WHERE Posts.PostTypeId=1
 ORDER BY CmtTotScr.CommentsTotalScore DESC
 LIMIT 10")
-head(zad3_sql)
+
+#head(zad3_sql)
 ```
 Interpretacja zapytania:
 
@@ -256,6 +278,26 @@ merged <- merged[1:10,.(Title, CommentsTotalScore)]
 
 all_equal(zad3_sql, merged)
 ```
+Zad3 funkcje bazowe
+```{r}
+#(CmtTotScr_bf <- setNames(aggregate(Comments[,c('Score')], by = list(PostId = Comments$PostId, UserId = Comments$UserId), sum), c('PostId', 'UserId', 'CommentsTotalScore')))
+
+#pierwszy argument w aggregate:
+CmtTotScr_bf <- setNames(aggregate(Comments$Score, by=list(PostID=Comments$PostId, 
+                      UserID=Comments$UserId), sum), c('PostId', 'UserId', 'CommentsTotalScore'))
+
+#all_equal(CmtTotScr_sql, CmtTotScr_bf)
+merged <- merge(CmtTotScr_bf, Posts, by.x = c("PostId", "UserId"), by.y = c("Id","OwnerUserId"))
+merged <- merged[merged[,"PostTypeId"] == 1, ]
+
+keycol <- c("CommentsTotalScore")
+merged <- setorderv(merged, keycol, c(-1))
+merged <- merged[1:10,c("Title", "CommentsTotalScore")]
+
+all_equal(zad3_sql, merged)
+
+```
+
 
 Zad4
 
@@ -284,7 +326,7 @@ FROM (
   ) AS ValuableBadges
 JOIN Users ON ValuableBadges.UserId=Users.Id
 ')
-head(zad4_sql)
+#head(zad4_sql)
 ```
 Interpretacja zapytania
 
@@ -364,11 +406,35 @@ merged <- merged[, .(Id, DisplayName, Reputation, Age, Location)]
 merged  <- unique(merged)
 all_equal(zad4_sql, merged)
 ```
+Zad 4 funkcje bazowe
+
+```{r}
+inner_names_bf <- Badges[Badges[,'Class']== 1,]
+(Names <- aggregate(inner_names_bf[, "Name"], by = list(Name = inner_names_bf[, "Name"]), length))
+(Names <- Names[Names[,'x'] >= 2 & Names[,'x'] <= 10, "Name"])
+
+#all_equal(inner_names_sql,Names)
+
+
+ValuableBadges_bf <- Badges[Badges[, 'Class'] == 1 & Badges[, 'Name']  %in% Names, ]
+ValuableBadges_bf <- ValuableBadges_bf[, c("Name", "UserId")]
+
+all_equal(ValuableBadges_sql, ValuableBadges_bf)
+
+merged <- merge(ValuableBadges_bf, Users, by.x = "UserId", by.y = "Id") %>% setnames(old = 'UserId', new = 'Id')
+merged <- merged[, c("Id", "DisplayName", "Reputation", "Age", "Location")]
+merged  <- unique(merged)
+all_equal(zad4_sql, merged)
+
+```
+
+# DO USUNIECIA:
+# wywalilem Id z BestAnswers bo to sie nie kompilowalo
 Zad 5
 
 zad5_sql
 ```{r}
-(zad_sql <- sqldf('
+zad5_sql <- sqldf('
 SELECT
     Questions.Id,
     Questions.Title,
@@ -376,7 +442,7 @@ SELECT
     Posts.Score AS AcceptedScore,
     BestAnswers.MaxScore-Posts.Score AS Difference
 FROM (
-        SELECT Id, ParentId, MAX(Score) AS MaxScore
+        SELECT ParentId, MAX(Score) AS MaxScore
         FROM Posts
         WHERE PostTypeId==2
         GROUP BY ParentId
@@ -389,22 +455,67 @@ JOIN (
 JOIN Posts ON Questions.AcceptedAnswerId=Posts.Id
 WHERE Difference>50
 ORDER BY Difference DESC
-'))
-
+')
+```
+```{r}
 best_answers_sql <- sqldf(
-'SELECT Id, ParentId, MAX(Score) AS MaxScore
+'SELECT ParentId, MAX(Score) AS MaxScore
 FROM Posts
 WHERE PostTypeId==2
 GROUP BY ParentId')
 
+questions_sql <- sqldf(
+'SELECT * FROM Posts
+WHERE PostTypeId==1'
+)
+zad5_pierwszy_join <- sqldf(
+'SELECT
+    Questions.Id,
+    Questions.Title,
+    BestAnswers.MaxScore
+FROM (
+        SELECT ParentId, MAX(Score) AS MaxScore
+        FROM Posts
+        WHERE PostTypeId==2
+        GROUP BY ParentId
+) AS BestAnswers
+JOIN (
+      SELECT * FROM Posts
+      WHERE PostTypeId==1
+    ) AS Questions
+ON Questions.Id=BestAnswers.ParentId'
+)
+```
+
+zad 5 dyplr
+```{r}
 best_answers <- Posts %>% 
   filter(PostTypeId == 2) %>% 
   group_by(ParentId) %>% 
   summarise(MaxScore = max(Score))
 
+all_equal(best_answers_sql, best_answers)
 
+questions <- Posts %>% 
+  filter(PostTypeId == 1) %>% 
+  select(everything())
+
+all_equal(questions_sql, questions)
+
+best_answers_questions <- inner_join(best_answers, questions, by= c("ParentId" = "Id")) %>%
+  rename(Id = ParentId)
+
+#all_equal(zad5_pierwszy_join, best_answers_questions)
+
+best_answers_questions_posts <- inner_join(best_answers_questions, Posts, by= c("AcceptedAnswerId"="Id")) %>%
+  mutate(Difference = MaxScore - Score.y) %>% 
+  select(Id, Title = Title.x, MaxScore, AcceptedScore = Score.y, Difference) %>%
+  filter(Difference > 50) %>% 
+  arrange(desc(Difference))
+all_equal(zad5_sql,best_answers_questions_posts)
 
 ```
+
 Interpretacja zapytania:
 
 (To zapytanie jest w jakims dziwnym standardzie bo selectowane sa dane niewchodzace w sklad grupowania - imo blednym)
@@ -427,9 +538,7 @@ Interpretacja zapytania:
 Posts %>% filter(ParentId <=3) %>% select(Id, ParentId) %>% arrange(ParentId)
 ```
 
-```{r}
 
-```
 
 ```{r}
 
