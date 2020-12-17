@@ -11,9 +11,12 @@ knitr::opts_chunk$set(echo = TRUE)
 options(stringsAsFactors=FALSE)
 
 library(sqldf)
-library(dplyr)
+library(dplyr, warn.conflicts = FALSE)
 library(data.table)
 library(microbenchmark)
+
+
+options(dplyr.summarise.inform = FALSE)
 #library(R.utils)
 
 ```
@@ -42,17 +45,19 @@ Votes_dt <- fread("travel_stackexchange_com/Votes.csv.gz")
 
 Wykonane zadania
 ```{r}
-wersja_dyplr <- c('T','N','T','T','T')
-wersja_f_bazowe <- c('T','N','T','T','N')
+wersja_sql <- c('T','T','T','T','T')
+wersja_dplyr <- c('T','N','T','T','T')
+wersja_f_bazowe <- c('T','N','T','T','T')
 wersja_data_table <- c('T','N','T','T','T')
-testy_szybkosci <- c('N', 'N', 'N', 'N', 'N')
+testy_szybkosci <- c('T', 'T', 'T', 'T', 'T')
 intepretacje <- c('T', 'T', 'T', 'T', 'T')
-head(data.frame(wersja_dyplr, wersja_f_bazowe, wersja_data_table, testy_szybkosci, intepretacje))
+head(data.frame(wersja_sql,wersja_dplyr, wersja_f_bazowe, wersja_data_table, testy_szybkosci, intepretacje))
 ```
 
 Zad1
 ```{r}
 # SQL
+zad_1_sql_fun <- function(){
 zad1_sql <- sqldf('SELECT Posts.Title, RelatedTab.NumLinks
 FROM
   (SELECT RelatedPostId AS PostId, COUNT(*) AS NumLinks
@@ -62,8 +67,9 @@ JOIN Posts ON RelatedTab.PostId=Posts.Id
 WHERE Posts.PostTypeId=1
 ORDER BY NumLinks DESC
 ')
-
+}
 #zad1_sql
+zad1_sql <- zad_1_sql_fun()
 ```
 Interpretacja zapytania:
 
@@ -89,28 +95,24 @@ zad 1 dplyr
 ```{r}
 # RelatedTab_zad_1_sql 
 # PostLinks 
-
+zad_1_dplyr_fun <- function(){
 RelatedTab <- PostLinks %>%
   group_by(RelatedPostId) %>%
   summarise(NumLinks = n()) %>% 
   rename(PostId = RelatedPostId)
 
-all_equal(RelatedTab, RelatedTab_zad_1_sql)
+#all_equal(RelatedTab, RelatedTab_zad_1_sql)
 
 zad1_dplyr <- inner_join(RelatedTab,Posts, by = c("PostId" = "Id")) %>% 
   filter(PostTypeId == 1) %>% 
   select(Title, NumLinks) %>% 
   arrange(desc(NumLinks))
-
-all_equal(zad1_dplyr, zad1_sql)
+return(zad1_dplyr)
+}
+all_equal(zad_1_dplyr_fun(), zad1_sql)
 ```
-Zad 1 data.table
-```{r}
-related_table_dt <- PostLinks_dt[, .(NumLinks = .N), by = RelatedPostId] %>% setnames(old = "RelatedPostId", new = "PostId")
-# related_table_dt
 
-all_equal(RelatedTab_zad_1_sql, related_table_dt) # do tego miejsca jest tak samo
-#################################
+```{r}
 zad1_sql_bez_where <- sqldf('SELECT Posts.Title, RelatedTab.NumLinks
 FROM
   (SELECT RelatedPostId AS PostId, COUNT(*) AS NumLinks
@@ -118,19 +120,31 @@ FROM
   GROUP BY RelatedPostId) AS RelatedTab
 JOIN Posts ON RelatedTab.PostId=Posts.Id
 ORDER BY NumLinks, Title')
+```
 
+Zad 1 data.table
+```{r}
+zad_1_data_table_fun <- function(){
+related_table_dt <- PostLinks_dt[, .(NumLinks = .N), by = RelatedPostId] %>% setnames(old = "RelatedPostId", new = "PostId")
+# related_table_dt
+
+#all_equal(RelatedTab_zad_1_sql, related_table_dt) # do tego miejsca jest tak samo
+#################################
 
 merged <- merge(related_table_dt, Posts_dt, by.x = "PostId", by.y = "Id")
 keycol <- c("NumLinks")
 merged <- setorderv(merged, keycol, c(-1))
 merged <- merged[PostTypeId == 1, c("Title", "NumLinks")]
 merged$Title <- gsub('""','"',merged$Title) # data.table zamiast "..." tworzy ""..."" wiec trzeba zamienic podwojne "" na pojedyncze "
-                                            # jest to absurdalne zachowanie data.table
-all_equal(merged, zad1_sql)               
+                                            
+return(merged)
+}
+all_equal(zad1_sql,zad_1_data_table_fun())               
 ```
 
 zad 1 funkcje bazowe
 ```{r}
+zad_1_bf_fun <- function(){
 #  RelatedTab_zad_1_bf <- aggregate(. ~ RelatedPostId, PostLinks, length)
 RelatedTab_zad_1_bf <-  setNames(aggregate(PostLinks[, 'RelatedPostId'], by = list(PostId = PostLinks$RelatedPostId), length), c("PostId", "NumLinks"))
 
@@ -140,21 +154,28 @@ merged <- merge(RelatedTab_zad_1_bf, Posts, by.x = "PostId", by.y = "Id")
 keycol <- c("NumLinks")
 merged <- setorderv(merged, keycol, c(-1))
 merged <- merged[merged$PostTypeId == 1, c("Title", "NumLinks")]
-merged$Title <- gsub('""','"',merged$Title) # data.table zamiast "..." tworzy ""..."" wiec trzeba zamienic podwojne "" na pojedyncze "
-                                            # jest to absurdalne zachowanie data.table
-all_equal(merged, zad1_sql)
+merged$Title <- gsub('""','"',merged$Title) 
+return(merged)
+}
+
+all_equal(zad1_sql,zad_1_bf_fun())
+
 ```
 
 Porównanie czasowe
 
 ```{r}
-x = 1:1000000
-microbenchmark(sqrt(x),
-               x^2)
+microbenchmark(
+  zad_1_sql_fun(),
+  zad_1_dplyr_fun(),
+  zad_1_data_table_fun(),
+  zad_1_bf_fun(),
+  times = 5)
 ```
 
 Zad 2 sql
 ```{r}
+zad_2_sql_fun <- function(){
 zad2_sql <- sqldf(
 'SELECT
   Users.DisplayName,
@@ -170,7 +191,9 @@ GROUP BY OwnerUserId
 ORDER BY FavoriteTotal DESC
 LIMIT 10
 ')
-#head(zad2_sql)
+}
+zad_2_sql <- zad_2_sql_fun()
+
 ```
 Interpretacja zapytania:
 
@@ -185,8 +208,8 @@ Interpretacja zapytania:
 
 Zad 2 dplyr
 ```{r}
+# to be implemented ...
 
-# bledne rozwiazanie - wielokrotnie pojawia sie MostFaviouteQuestion dla nawego Favourite Count
 users_inner <- Users %>% select(DisplayName, Age, Location, Id)
 
 inner_join(Posts, Users, by = c("OwnerUserId" = "Id")) %>% 
@@ -198,15 +221,25 @@ inner_join(Posts, Users, by = c("OwnerUserId" = "Id")) %>%
   ungroup() %>%
   select(DisplayName, Age, Location, FavoriteTotal, MostFavoriteQuestion, MostFavoriteQuestionLikes) %>% 
   arrange(desc(FavoriteTotal)) %>% 
-  top_n(10)
+  top_n(10) -> zad_2_dplyr
   
   #rename(MostFavoriteQuestion = Title)
 
 ```
+
+Porównanie czasowe
+
+```{r}
+microbenchmark(
+  zad_2_sql_fun(),
+  times = 5)
+```
+
 Zad 3
 
 Zad3 SQL
 ```{r}
+zad_3_sql_fun <- function(){
 zad3_sql <- sqldf("
 SELECT
   Posts.Title,
@@ -223,8 +256,8 @@ JOIN Posts ON Posts.ID=CmtTotScr.PostID AND Posts.OwnerUserId=CmtTotScr.UserID
 WHERE Posts.PostTypeId=1
 ORDER BY CmtTotScr.CommentsTotalScore DESC
 LIMIT 10")
-
-#head(zad3_sql)
+}
+zad3_sql <- zad_3_sql_fun()
 ```
 Interpretacja zapytania:
 
@@ -238,7 +271,7 @@ Interpretacja zapytania:
 5. Wyznacz Title, CommentsTotalScore
 6. Wybierz 10 pierwszych wierszy
 
-zad3 dyplyr
+
 ```{r}
 CmtTotScr_sql <- sqldf('SELECT
 PostID,
@@ -246,12 +279,17 @@ UserID,
 SUM(Score) AS CommentsTotalScore
 FROM Comments
 GROUP BY PostID, UserID')
+```
+zad3 dplyr
+```{r}
+zad_3_dplyr_fun <- function(){
+
 
 CmtTotScr <- Comments %>% 
   group_by(PostId, UserId) %>% 
   summarise(CommentsTotalScore = sum(Score))
 
-all_equal(CmtTotScr, CmtTotScr_sql)
+#all_equal(CmtTotScr, CmtTotScr_sql)
 
 zad3_dyplr <- inner_join(CmtTotScr, Posts, by = c("PostId"="Id", "UserId"="OwnerUserId")) %>% 
   filter(PostTypeId == 1) %>% 
@@ -259,16 +297,16 @@ zad3_dyplr <- inner_join(CmtTotScr, Posts, by = c("PostId"="Id", "UserId"="Owner
   ungroup() %>% 
   select(Title, CommentsTotalScore) %>% 
   top_n(10)
-
-all_equal(zad3_dyplr, zad3_sql)
-
-
+return(zad3_dyplr)
+}
+all_equal(zad_3_dplyr_fun(), zad3_sql)
 ```
 
 Zad3 data.table
 ```{r}
+zad_3_data_table_fun <- function(){
 CmtTotScr_dt <- Comments_dt[, .(CommentsTotalScore = sum(Score)),.(PostId,UserId)]
-all_equal(CmtTotScr_dt, CmtTotScr_sql)
+#all_equal(CmtTotScr_dt, CmtTotScr_sql)
 
 merged <- merge(CmtTotScr_dt, Posts_dt, by.x = c("PostId", "UserId"), by.y = c("Id","OwnerUserId"))
 merged <- merged[PostTypeId==1,]
@@ -277,11 +315,13 @@ merged <- merged[PostTypeId==1,]
 keycol <- c("CommentsTotalScore")
 merged <- setorderv(merged, keycol, c(-1))
 merged <- merged[1:10,.(Title, CommentsTotalScore)]
-
-all_equal(zad3_sql, merged)
+return(merged)
+}
+all_equal(zad3_sql, zad_3_data_table_fun())
 ```
 Zad3 funkcje bazowe
 ```{r}
+zad_3_bf_fun <- function(){
 #(CmtTotScr_bf <- setNames(aggregate(Comments[,c('Score')], by = list(PostId = Comments$PostId, UserId = Comments$UserId), sum), c('PostId', 'UserId', 'CommentsTotalScore')))
 
 #pierwszy argument w aggregate:
@@ -295,16 +335,28 @@ merged <- merged[merged[,"PostTypeId"] == 1, ]
 keycol <- c("CommentsTotalScore")
 merged <- setorderv(merged, keycol, c(-1))
 merged <- merged[1:10,c("Title", "CommentsTotalScore")]
-
-all_equal(zad3_sql, merged)
+return(merged)
+}
+all_equal(zad3_sql, zad_3_bf_fun())
 
 ```
 
+Porównanie czasowe
+
+```{r}
+microbenchmark(
+  zad_3_sql_fun(),
+  zad_3_dplyr_fun(),
+  zad_3_data_table_fun(),
+  zad_3_bf_fun(),
+  times = 5)
+```
 
 Zad4
 
 zad4 sql
 ```{r}
+zad_4_sql_fun <- function(){
 zad4_sql <- sqldf('
 SELECT DISTINCT
   Users.Id,
@@ -328,6 +380,8 @@ FROM (
   ) AS ValuableBadges
 JOIN Users ON ValuableBadges.UserId=Users.Id
 ')
+}
+zad4_sql <- zad_4_sql_fun()
 #head(zad4_sql)
 ```
 Interpretacja zapytania
@@ -343,7 +397,7 @@ Interpretacja zapytania
 3. Polacz ValuableBadges z Users
 4. Wybierz Id, DisplayName, Reputation, Age, Location (wiersze nie moga sie powtarzac)
 
-zad4_dyplr
+
 ```{r}
 inner_names_sql <- sqldf('
 SELECT
@@ -352,17 +406,6 @@ FROM Badges
 WHERE Class=1
 GROUP BY Name
 HAVING COUNT(*) BETWEEN 2 AND 10')
-
-inner_names <- Badges %>% 
-  filter(Class == 1) %>% 
-  group_by(Name) %>% 
-  summarise(cnt = n()) %>% 
-  ungroup() %>% 
-  filter(cnt >= 2, cnt <= 10) %>% 
-  select(Name) %>%
-    pull() #pull potrzebny do kolejnego zapytania (gdzie uzywa sie %in%s)
-#all_equal(inner_names_sql, inner_names)
-
 
 ValuableBadges_sql <- sqldf('
 SELECT
@@ -377,6 +420,21 @@ WHERE Name IN (
     HAVING COUNT(*) BETWEEN 2 AND 10
     )
 AND Class=1')
+```
+zad4 dplyr
+```{r}
+zad_4_dplyr_fun <- function(){
+
+
+inner_names <- Badges %>% 
+  filter(Class == 1) %>% 
+  group_by(Name) %>% 
+  summarise(cnt = n()) %>% 
+  ungroup() %>% 
+  filter(cnt >= 2, cnt <= 10) %>% 
+  select(Name) %>%
+    pull() #pull potrzebny do kolejnego zapytania (gdzie uzywa sie %in%s)
+#all_equal(inner_names_sql, inner_names)
 
 ValuableBadges <- Badges %>% 
   filter(Name %in% inner_names, Class == 1) %>% 
@@ -388,12 +446,14 @@ zad4_dyplr <- inner_join(ValuableBadges, Users, by = c("UserId" = "Id")) %>%
     rename(Id = UserId) %>% 
     select(Id, DisplayName, Reputation, Age, Location) %>% 
   distinct
-
-all_equal(zad4_dyplr, zad4_sql)
+return(zad4_dyplr)
+}
+all_equal(zad_4_dplyr_fun(), zad4_sql)
 ```
 
 Zad 4 data.table
 ```{r}
+zad_4_data_table_fun <- function(){
 inner_names_dt <- Badges_dt[Class==1, .(count = .N), by = .(Name)]
 inner_names_dt <- inner_names_dt[count >=2 & count <= 10, .(Name)]
 
@@ -401,16 +461,19 @@ all_equal(inner_names_sql, inner_names_dt)
 
 ValuableBadges_dt <- Badges_dt[Class == 1 & Name %in% pull(inner_names_dt), .(Name, UserId)]
 
-all_equal(ValuableBadges_dt, ValuableBadges_sql)
+#all_equal(ValuableBadges_dt, ValuableBadges_sql)
 
 merged <- merge(ValuableBadges_dt, Users_dt, by.x = "UserId", by.y = "Id") %>% setnames(old = 'UserId', new = 'Id')
 merged <- merged[, .(Id, DisplayName, Reputation, Age, Location)]
 merged  <- unique(merged)
-all_equal(zad4_sql, merged)
+return(merged)
+}
+all_equal(zad4_sql, zad_4_data_table_fun())
 ```
 Zad 4 funkcje bazowe
 
 ```{r}
+zad_4_bf_fun <- function(){
 inner_names_bf <- Badges[Badges[,'Class']== 1,]
 (Names <- aggregate(inner_names_bf[, "Name"], by = list(Name = inner_names_bf[, "Name"]), length))
 (Names <- Names[Names[,'x'] >= 2 & Names[,'x'] <= 10, "Name"])
@@ -426,16 +489,28 @@ all_equal(ValuableBadges_sql, ValuableBadges_bf)
 merged <- merge(ValuableBadges_bf, Users, by.x = "UserId", by.y = "Id") %>% setnames(old = 'UserId', new = 'Id')
 merged <- merged[, c("Id", "DisplayName", "Reputation", "Age", "Location")]
 merged  <- unique(merged)
-all_equal(zad4_sql, merged)
+return(merged)
+}
+all_equal(zad4_sql, zad_4_bf_fun())
 
 ```
+Porównanie czasowe
 
-# DO USUNIECIA:
-# wywalilem Id z BestAnswers bo to sie nie kompilowalo
+```{r}
+microbenchmark(
+  zad_4_sql_fun(),
+  zad_4_dplyr_fun(),
+  zad_4_data_table_fun(),
+  zad_4_bf_fun(),
+  times = 5)
+```
+
+
 Zad 5
 
 zad5_sql
 ```{r}
+zad_5_sql_fun <- function(){
 zad5_sql <- sqldf('
 SELECT
     Questions.Id,
@@ -458,6 +533,8 @@ JOIN Posts ON Questions.AcceptedAnswerId=Posts.Id
 WHERE Difference>50
 ORDER BY Difference DESC
 ')
+}
+zad5_sql <- zad_5_sql_fun()
 ```
 
 
@@ -509,8 +586,9 @@ ON Questions.Id=BestAnswers.ParentId'
 )
 ```
 
-zad 5 dyplr
+zad 5 dplyr
 ```{r}
+zad_5_dplyr_fun <- function(){
 best_answers <- Posts %>% 
   filter(PostTypeId == 2) %>% 
   group_by(ParentId) %>% 
@@ -522,7 +600,7 @@ questions <- Posts %>%
   filter(PostTypeId == 1) %>% 
   select(everything())
 
-all_equal(questions_sql, questions)
+#all_equal(questions_sql, questions)
 
 best_answers_questions <- inner_join(best_answers, questions, by= c("ParentId" = "Id")) %>%
   rename(Id = ParentId)
@@ -534,8 +612,9 @@ best_answers_questions_posts <- inner_join(best_answers_questions, Posts, by= c(
   select(Id, Title = Title.x, MaxScore, AcceptedScore = Score.y, Difference) %>%
   filter(Difference > 50) %>% 
   arrange(desc(Difference))
-
-all_equal(zad5_sql,best_answers_questions_posts)
+return(best_answers_questions_posts)
+}
+all_equal(zad5_sql,zad_5_dplyr_fun())
 
 ```
 
@@ -543,6 +622,7 @@ all_equal(zad5_sql,best_answers_questions_posts)
 zad 5 data.table
 
 ```{r}
+zad_5_data_table_fun <- function(){
 best_answers_dt <- Posts_dt[PostTypeId == 2, .(MaxScore = max(Score)), by = list(ParentId)]
 
 all_equal(best_answers_sql, best_answers_dt)
@@ -562,22 +642,24 @@ best_answers_questions_posts_dt <- best_answers_questions_posts_dt[Difference > 
 best_answers_questions_posts_dt[, AcceptedScore := Score.y ]
 best_answers_questions_posts_dt[, Title := Title.x ]
 best_answers_questions_posts_dt  <- best_answers_questions_posts_dt[, .(Id, Title, MaxScore, AcceptedScore, Difference)]
-
-all_equal(zad5_sql, best_answers_questions_posts_dt)
+return(best_answers_questions_posts_dt)
+}
+all_equal(zad5_sql, zad_5_data_table_fun())
 ```
 Zad 5 funkcje bazowe
 
 ```{r}
+zad_5_bf_fun <- function(){
 # 1 wyznaczyc best_answers_bf
 best_answers_bf <- Posts[Posts[,'PostTypeId']==2,]
 best_answers_bf <- setNames(aggregate(best_answers_bf$Score, by = list(best_answers_bf$ParentId), max), c('ParentId', 'MaxScore'))
 
-all_equal(best_answers_sql, best_answers_bf)
+#all_equal(best_answers_sql, best_answers_bf)
 
 # 2 wyznaczyc questions_bf
 questions_bf <- Posts[Posts$PostTypeId == 1,]
 
-all_equal(questions_sql, questions_bf)
+#all_equal(questions_sql, questions_bf)
 
 # 3 join best_answers_bf i questions_bf
 best_answers_questions_bf <- merge(best_answers_bf, questions_bf, by.x = "ParentId", by.y = "Id")
@@ -595,10 +677,17 @@ best_answers_questions_posts_bf$AcceptedScore <- best_answers_questions_posts_bf
 best_answers_questions_posts_bf$Title <- best_answers_questions_posts_bf$Title.x
 
 best_answers_questions_posts_bf <- best_answers_questions_posts_bf[,c("Id", "Title", "MaxScore","AcceptedScore", "Difference")]
-
-all_equal(zad5_sql, best_answers_questions_posts_bf)
+return(best_answers_questions_posts_bf)
+}
+all_equal(zad5_sql, zad_5_bf_fun())
 ```
 
-
-
-
+Porównanie czasowe
+```{r}
+microbenchmark(
+  zad_5_sql_fun(),
+  zad_5_dplyr_fun(),
+  zad_5_data_table_fun(),
+  zad_5_bf_fun(),
+  times = 5)
+```
