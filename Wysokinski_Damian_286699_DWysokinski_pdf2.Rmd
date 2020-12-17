@@ -261,6 +261,8 @@ zad3_dyplr <- inner_join(CmtTotScr, Posts, by = c("PostId"="Id", "UserId"="Owner
   top_n(10)
 
 all_equal(zad3_dyplr, zad3_sql)
+
+
 ```
 
 Zad3 data.table
@@ -457,6 +459,7 @@ WHERE Difference>50
 ORDER BY Difference DESC
 ')
 ```
+
 ```{r}
 best_answers_sql <- sqldf(
 'SELECT ParentId, MAX(Score) AS MaxScore
@@ -494,7 +497,7 @@ best_answers <- Posts %>%
   group_by(ParentId) %>% 
   summarise(MaxScore = max(Score))
 
-all_equal(best_answers_sql, best_answers)
+#all_equal(best_answers_sql, best_answers)
 
 questions <- Posts %>% 
   filter(PostTypeId == 1) %>% 
@@ -512,8 +515,38 @@ best_answers_questions_posts <- inner_join(best_answers_questions, Posts, by= c(
   select(Id, Title = Title.x, MaxScore, AcceptedScore = Score.y, Difference) %>%
   filter(Difference > 50) %>% 
   arrange(desc(Difference))
+
 all_equal(zad5_sql,best_answers_questions_posts)
 
+```
+
+
+zad 5 data.table
+
+```{r}
+best_answers_dt <- Posts_dt[PostTypeId == 2, .(MaxScore = max(Score)), by = list(ParentId)]
+
+all_equal(best_answers_sql, best_answers_dt)
+
+questions_dt <- Posts_dt[PostTypeId==1,]
+questions_dt$Title <- gsub('\"\"', '\"',questions_dt$Title)
+
+all_equal(questions_sql, questions_dt)
+
+# teraz kolej na joina, ale to juz jutro...
+
+best_answers_questions_dt <- merge(best_answers_dt, questions_dt, by.x = "ParentId", by.y = "Id") %>% 
+  setnames(old = 'ParentId', new = 'Id')
+
+best_answers_questions_posts_dt <- merge(best_answers_questions_dt, Posts_dt, by.x = "AcceptedAnswerId", by.y = "Id")
+best_answers_questions_posts_dt[, Difference := MaxScore - Score.y]
+
+best_answers_questions_posts_dt <- best_answers_questions_posts_dt[Difference > 50,]
+best_answers_questions_posts_dt[, AcceptedScore := Score.y ]
+best_answers_questions_posts_dt[, Title := Title.x ]
+best_answers_questions_posts_dt  <- best_answers_questions_posts_dt[, .(Id, Title, MaxScore, AcceptedScore, Difference)]
+
+all_equal(zad5_sql, best_answers_questions_posts_dt)
 ```
 
 Interpretacja zapytania:
