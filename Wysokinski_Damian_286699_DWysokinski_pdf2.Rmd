@@ -42,9 +42,9 @@ Votes_dt <- fread("travel_stackexchange_com/Votes.csv.gz")
 
 Wykonane zadania
 ```{r}
-wersja_dyplr <- c('T','N','T','T','N')
+wersja_dyplr <- c('T','N','T','T','T')
 wersja_f_bazowe <- c('T','N','T','T','N')
-wersja_data_table <- c('T','N','T','T','N')
+wersja_data_table <- c('T','N','T','T','T')
 testy_szybkosci <- c('N', 'N', 'N', 'N', 'N')
 intepretacje <- c('T', 'T', 'T', 'T', 'T')
 head(data.frame(wersja_dyplr, wersja_f_bazowe, wersja_data_table, testy_szybkosci, intepretacje))
@@ -460,6 +460,25 @@ ORDER BY Difference DESC
 ')
 ```
 
+
+Interpretacja zapytania:
+
+(To zapytanie jest w jakims dziwnym standardzie bo selectowane sa dane niewchodzace w sklad grupowania - imo blednym)
+
+1. Stworz tabele BestAnswers jako:
+    1. Przefiltruj Posts po PostTypeId=2
+    2. Pogrupuj po ParentId
+    3. Wybierz Id, ParentId, max Score z aliasem MaxScore
+2. Stworz tabele Questions jako:
+    1. Przefiltruj Posts po PostTypeId = 1
+    2. Wybierz wszystkie kolumny
+3. Polacz BestAnswers z Questions
+4. Polacz z Posts
+5. Przefiltruj po Difference > 50
+6. Uszereguj po Difference
+7. Zwroc Id, Title, MaxScore, Score z aliasem AcceptedScore, MaxScore-Score z aliasem Difference
+
+
 ```{r}
 best_answers_sql <- sqldf(
 'SELECT ParentId, MAX(Score) AS MaxScore
@@ -533,8 +552,6 @@ questions_dt$Title <- gsub('\"\"', '\"',questions_dt$Title)
 
 all_equal(questions_sql, questions_dt)
 
-# teraz kolej na joina, ale to juz jutro...
-
 best_answers_questions_dt <- merge(best_answers_dt, questions_dt, by.x = "ParentId", by.y = "Id") %>% 
   setnames(old = 'ParentId', new = 'Id')
 
@@ -548,55 +565,40 @@ best_answers_questions_posts_dt  <- best_answers_questions_posts_dt[, .(Id, Titl
 
 all_equal(zad5_sql, best_answers_questions_posts_dt)
 ```
-
-Interpretacja zapytania:
-
-(To zapytanie jest w jakims dziwnym standardzie bo selectowane sa dane niewchodzace w sklad grupowania - imo blednym)
-
-1. Stworz tabele BestAnswers jako:
-    1. Przefiltruj Posts po PostTypeId=2
-    2. Pogrupuj po ParentId
-    3. Wybierz Id, ParentId, max Score z aliasem MaxScore
-2. Stworz tabele Questions jako:
-    1. Przefiltruj Posts po PostTypeId = 1
-    2. Wybierz wszystkie kolumny
-3. Polacz BestAnswers z Questions
-4. Polacz z Posts
-5. Przefiltruj po Difference > 50
-6. Uszereguj po Difference
-7. Zwroc Id, Title, MaxScore, Score z aliasem AcceptedScore, MaxScore-Score z aliasem Difference
-
+Zad 5 funkcje bazowe
 
 ```{r}
-Posts %>% filter(ParentId <=3) %>% select(Id, ParentId) %>% arrange(ParentId)
+# 1 wyznaczyc best_answers_bf
+best_answers_bf <- Posts[Posts[,'PostTypeId']==2,]
+best_answers_bf <- setNames(aggregate(best_answers_bf$Score, by = list(best_answers_bf$ParentId), max), c('ParentId', 'MaxScore'))
+
+all_equal(best_answers_sql, best_answers_bf)
+
+# 2 wyznaczyc questions_bf
+questions_bf <- Posts[Posts$PostTypeId == 1,]
+
+all_equal(questions_sql, questions_bf)
+
+# 3 join best_answers_bf i questions_bf
+best_answers_questions_bf <- merge(best_answers_bf, questions_bf, by.x = "ParentId", by.y = "Id")
+names(best_answers_questions_bf)[names(best_answers_questions_bf) == "ParentId"] <- "Id"
+
+
+# 4 join do posts
+
+best_answers_questions_posts_bf <- merge(best_answers_questions_bf, Posts, by.x = "AcceptedAnswerId", by.y = "Id")
+best_answers_questions_posts_bf$Difference =  best_answers_questions_posts_bf$MaxScore - best_answers_questions_posts_bf$Score.y
+
+best_answers_questions_posts_bf = best_answers_questions_posts_bf[best_answers_questions_posts_bf$Difference > 50, ]
+
+best_answers_questions_posts_bf$AcceptedScore <- best_answers_questions_posts_bf$Score.y
+best_answers_questions_posts_bf$Title <- best_answers_questions_posts_bf$Title.x
+
+best_answers_questions_posts_bf <- best_answers_questions_posts_bf[,c("Id", "Title", "MaxScore","AcceptedScore", "Difference")]
+
+all_equal(zad5_sql, best_answers_questions_posts_bf)
 ```
 
 
 
-```{r}
 
-```
-
-```{r}
-
-```
-
-```{r}
-
-```
-
-```{r}
-
-```
-
-```{r}
-
-```
-
-```{r}
-
-```
-
-```{r}
-
-```
